@@ -278,7 +278,7 @@ def run_scraper_final_fix(daerah, target_count):
                     harga = "0"
                     harga_int = 0
                     try:
-                        sidebar_text = driver.find_element(By.CSS_SELECTOR, ".price-card-container, #priceCard").text
+                        sidebar_text = driver.find_element(By.CSS_SELECTOR, ".rc-price__text").text
                         for line in sidebar_text.split('\n'):
                             if "Rp" in line:
                                 harga = line
