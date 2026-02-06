@@ -151,8 +151,8 @@ def run_scraper_final_fix(daerah, target_count):
     main_window = driver.current_window_handle
     
     # --- PENGGANTI INPUT MANUAL ---
-    status_text.warning("⚠️ Browser Terbuka! Anda punya 20 detik untuk Login/Captcha manual jika muncul...")
-    time.sleep(20) 
+    status_text.warning("⚠️ Browser Terbuka! Anda punya 3 detik untuk Login/Captcha manual jika muncul...")
+    time.sleep(3) 
     status_text.text("✅ Waktu habis. Mulai scanning otomatis...")
     
     all_data = []
@@ -278,14 +278,19 @@ def run_scraper_final_fix(daerah, target_count):
                     harga = "0"
                     harga_int = 0
                     try:
-                        sidebar_text = driver.find_element(By.CSS_SELECTOR, ".rc-price__text").text
-                        for line in sidebar_text.split('\n'):
-                            if "Rp" in line:
-                                harga = line
-                                temp = line.replace("Rp", "").replace(".", "").replace(" ", "").split("/")[0]
-                                try: harga_int = int(temp)
-                                except: pass
-                                break
+                        # Sesuai screenshot: <span class="rc-price__text">Rp2.975.000</span>
+                        elem_harga = driver.find_element(By.CLASS_NAME, "rc-price__text")
+                        raw_text = elem_harga.text.strip()
+                        
+                        # Debug: Cetak ke terminal biar ketahuan script baca apa
+                        print(f"💰 Cek Harga: {raw_text}") 
+                        
+                        # Bersihkan: "Rp2.975.000" -> "2975000"
+                        clean_angka = raw_text.replace("Rp", "").replace(".", "").replace(" ", "").strip()
+
+                        if clean_angka.isdigit():
+                            harga_int = int(clean_angka)
+                            harga = raw_text
                     except: pass
 
                     # Fasilitas (DICT LENGKAP)
