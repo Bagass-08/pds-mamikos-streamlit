@@ -101,9 +101,9 @@ def run_scraper_final_fix(daerah, target_count):
     status_text = st.empty()
     
     # --- SETUP CHROME OPTIONS ---
-    # --- SETUP CHROME OPTIONS ---
     options = Options()
     options.page_load_strategy = 'eager'
+    options.add_argument("--window-size=1920,1080")
     prefs = {"profile.managed_default_content_settings.images": 2}
     options.add_experimental_option("prefs", prefs)
     options.add_argument("--disable-blink-features=AutomationControlled") 
