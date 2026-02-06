@@ -291,6 +291,16 @@ def run_scraper_final_fix(daerah, target_count):
                         if clean_angka.isdigit():
                             harga_int = int(clean_angka)
                             harga = raw_text
+
+                        # CARA 2: Kalau Cara 1 hasilnya masih 0, ambil pembungkusnya (.rc-price__real)
+                        if harga_int == 0:
+                             elem_parent = driver.find_element(By.CLASS_NAME, "rc-price__real")
+                             raw_parent = elem_parent.text # Isinya: "Rp2.975.000\n/bulan"
+                             
+                             clean_parent = raw_parent.replace("Rp", "").replace(".", "").replace(" ", "").split("/")[0].strip()
+                             if clean_parent.isdigit():
+                                 harga_int = int(clean_parent)
+                                 harga = raw_parent.replace("\n", " ")
                     except: pass
 
                     # Fasilitas (DICT LENGKAP)
