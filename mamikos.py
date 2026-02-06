@@ -362,6 +362,7 @@ def run_scraper_final_fix(daerah, target_count):
 
                 driver.close()
                 driver.switch_to.window(main_window)
+                driver.delete_all_cookies()
                 time.sleep(1)
 
             except Exception as e:
