@@ -690,7 +690,7 @@ if 'data_kos' in st.session_state:
                         st.metric("Skor Fasilitas", f"{row['Skor_Fasilitas']} Item")
                         
                         # 6. Tombol Akses
-                        st.link_button("👉 Lihat Kos", row['Link'], use_container_width=True)
+                        st.link_button("Lihat Kos", row['Link'], use_container_width=True)
 
             st.markdown("#### Daftar Lengkap Hasil Filter")
             # Menampilkan kolom yang relevan saja agar rapi
