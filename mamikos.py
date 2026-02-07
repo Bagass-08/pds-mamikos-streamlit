@@ -670,12 +670,16 @@ if 'data_kos' in st.session_state:
         # 2. Filter berdasarkan kata kunci di Deskripsi (Pengganti Jarak GPS)
         if keyword:
             # Mencari teks di kolom Deskripsi yang di-scrape otomatis
-            df_rec = (
-                df_rec[df_rec['Deskripsi'].str.contains(keyword, case=False, na=False)] |
-                df_rec['Nama Kost'].str.contains(keyword, case=False, na=False) |
-                df_rec['Lokasi Clean'].str.contains(keyword, case=False, na=False)
+            mask = (
+                (df_rec['Deskripsi'].str.contains(keyword, case=False, na=False)) |
+                (df_rec['Nama Kost'].str.contains(keyword, case=False, na=False)) |
+                (df_rec['Lokasi Clean'].str.contains(keyword, case=False, na=False))
             )
-            st.success(f"Ditemukan {len(df_rec)} kos di sekitar '{keyword}'")
+            df_rec = df_rec[mask]
+            if not df_rec.empty:
+                st.success(f"🔍 Ditemukan {len(df_rec)} kos untuk kata kunci '{keyword}'")
+            else:
+                st.warning(f"⚠️ Tidak ada hasil untuk '{keyword}'")
 
         # 3. Sortir: Fasilitas Terlengkap & Harga Termurah
         df_rec = df_rec.sort_values(by=['Skor_Fasilitas', 'Harga_Int'], ascending=[False, True])
