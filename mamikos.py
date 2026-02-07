@@ -42,26 +42,47 @@ def extract_tipe_kos_manual(row):
     elif 'pasutri' in teks: return 'Pasutri'
     else: return 'Campur'
 
-#--- 3. FUNGSI GEOCODING (LETAK PETA AKURAT) ---
 def add_accurate_coordinates(df, city_context):
-    geolocator = Nominatim(user_agent="kos_app_smart_geo_v1")
+    # Gunakan user_agent unik
+    geolocator = Nominatim(user_agent="kos_app_bagas_fix_v2")
     
-    st.info(f"🗺️ Sedang melakukan Geocoding (Memetakan koordinat kecamatan di {city_context})...")
+    # RateLimiter wajib untuk Cloud (Jeda 1 detik)
+    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+    
+    st.info(f"🗺️ Memetakan koordinat di {city_context}...")
     progress_bar = st.progress(0)
     
+    # --- 1. TENTUKAN TITIK TENGAH PETA (CENTER) ---
+    try:
+        # Coba cari otomatis dulu
+        center = geocode(f"{city_context}, Indonesia", timeout=10)
+        c_lat, c_lon = center.latitude, center.longitude
+    except:
+        # Jika GAGAL, cek manual nama kotanya
+        if "jakarta" in city_context.lower():
+            c_lat, c_lon = -6.2088, 106.8456
+        elif "surabaya" in city_context.lower():
+            c_lat, c_lon = -7.2575, 112.7521
+        elif "jogja" in city_context.lower() or "yogyakarta" in city_context.lower():
+            c_lat, c_lon = -7.7956, 110.3695
+        else:
+            c_lat, c_lon = -6.9175, 107.6191 # Fallback terakhir tetap Bandung
+
+    # --- 2. PETAKAN SETIAP LOKASI KOS ---
     unique_locs = df['Lokasi Clean'].unique()
     loc_map = {}
     
     for i, loc in enumerate(unique_locs):
         progress_bar.progress(int((i / len(unique_locs)) * 100))
+        
         if loc == "-" or pd.isna(loc):
             loc_map[loc] = None
             continue
+            
         try:
+            # Cari lokasi spesifik + nama kota agar tidak nyasar
             query = f"{loc}, {city_context}, Indonesia"
-            loc_data = geolocator.geocode(query, timeout=10)
-            if not loc_data:
-                loc_data = geolocator.geocode(f"{loc}, Indonesia", timeout=10)
+            loc_data = geocode(query, timeout=10)
             
             if loc_data:
                 loc_map[loc] = (loc_data.latitude, loc_data.longitude)
@@ -72,30 +93,27 @@ def add_accurate_coordinates(df, city_context):
             
     progress_bar.empty()
     
+    # --- 3. MASUKKAN KE DATAFRAME ---
     latitudes = []
     longitudes = []
     
-    try:
-        center = geolocator.geocode(f"{city_context}, Indonesia")
-        c_lat, c_lon = center.latitude, center.longitude
-    except:
-        c_lat, c_lon = -6.9175, 107.6191
-
     for index, row in df.iterrows():
         coords = loc_map.get(row['Lokasi Clean'])
         if coords:
-            latitudes.append(coords[0] + random.uniform(-0.002, 0.002))
-            longitudes.append(coords[1] + random.uniform(-0.002, 0.002))
+            # Tambah sedikit random (jitter) agar marker tidak tumpang tindih
+            latitudes.append(coords[0] + random.uniform(-0.001, 0.001))
+            longitudes.append(coords[1] + random.uniform(-0.001, 0.001))
         else:
-            latitudes.append(c_lat + random.uniform(-0.03, 0.03))
-            longitudes.append(c_lon + random.uniform(-0.03, 0.03))
+            # Jika lokasi spesifik gagal, pakai titik tengah kota yang sudah benar tadi
+            latitudes.append(c_lat + random.uniform(-0.02, 0.02))
+            longitudes.append(c_lon + random.uniform(-0.02, 0.02))
             
     df['lat'] = latitudes
     df['lon'] = longitudes
-    return df
+    return df        
 
 # --- 4. FUNGSI SCRAPER (LOGIKA ASLI + FORBIDDEN SKIP + TIPE KOS + DESKRIPSI ASLI) ---
-def run_scraper_final_fix(daerah, target_count):
+def run_scraper_final_fix(daerah, start_page, target_count):
     # Setup Progress di Streamlit
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -159,6 +177,31 @@ def run_scraper_final_fix(daerah, target_count):
     
     success_count = 0  # Hitungan data yang berhasil didapat
     current_idx = 0    # Penunjuk kartu mana yang sedang diproses
+
+    if start_page > 1:
+        status_text.warning(f"⏭️ Sedang melompati ke halaman {start_page}...")
+        # Loop ini akan berjalan sebanyak start_page - 1 kali
+        for p in range(1, start_page):
+            try:
+                # Menunggu tombol pagination muncul
+                next_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//ul[contains(@class, 'pagination')]/li[last()]/a")))
+                
+                # Scroll ke tombol agar terlihat oleh driver
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_button)
+                time.sleep(1)
+                
+                # Klik tombol Next
+                driver.execute_script("arguments[0].click();", next_button)
+                
+                status_text.text(f"✅ Berhasil melewati halaman {p}...")
+                # Tambah delay agar halaman benar-benar ganti sebelum klik berikutnya
+                time.sleep(5) 
+            except Exception as e:
+                st.error(f"Gagal skip ke halaman {p+1}. Error: {e}")
+                break
+    
+    status_text.success(f"📍 Posisi sekarang: Halaman {start_page}. Mulai mengambil data...")
+    time.sleep(2)
 
     try:
         # Loop sesuai target user
@@ -431,18 +474,20 @@ with st.sidebar:
         st.warning("Mode Demo: Pengambilan Data Website (Web Scraping).")
         daerah_input = st.text_input("Target Daerah:", "Bandung Kota")
         
-        # Ganti slider sebelumnya dengan ini:
-        jumlah_data = st.number_input(
-            "Jumlah Data yang Ingin Diambil:", 
-            min_value=1, 
-            max_value=2000, 
-            value=5,
-            step=1,
-            help="Ketik langsung angka (1-2000) atau klik tombol + / -"
-        )
         
+        start_page = st.number_input("Mulai dari Halaman:", min_value=1, value=1, help="Sistem akan otomatis 'Next' sampai halaman ini.")
+    
+        jumlah_data = st.number_input(
+        "Jumlah Data yang Ingin Diambil:", 
+        min_value=1, 
+        max_value=2000, 
+        value=5,
+        step=1,
+        help="Ketik langsung angka (1-2000) atau klik tombol + / -"
+        )
+                    
         if st.button("🚀 Mulai Ambil Data"):
-            df_result = run_scraper_final_fix(daerah_input, jumlah_data)
+            df_result = run_scraper_final_fix(daerah_input, start_page, jumlah_data)
 
 # --- 6. PROSES DATA TERPUSAT ---
 if not df_result.empty:
@@ -733,7 +778,7 @@ if 'data_kos' in st.session_state:
                         display_text="Buka Link Kos" # Teks yang muncul di tombol
                     ),
                     "Harga": st.column_config.TextColumn("Harga Sewa"),
-                    "Skor_Fasilitas": st.column_config.NumberColumn("Item Fasilitas", format="%d 🛏️")
+                    "Skor_Fasilitas": st.column_config.NumberColumn("Item Fasilitas")
                 },
                 hide_index=True,
                 use_container_width=True,
