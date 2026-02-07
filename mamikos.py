@@ -157,13 +157,16 @@ def run_scraper_final_fix(daerah, target_count):
     
     all_data = []
     
+    success_count = 0  # Hitungan data yang berhasil didapat
+    current_idx = 0    # Penunjuk kartu mana yang sedang diproses
+
     try:
         # Loop sesuai target user
-        for i in range(target_count):
+        while success_count < target_count:
             # Update Progress Bar Streamlit
-            persen = int((i / target_count) * 100)
+            persen = int((success_count / target_count) * 100)
             progress_bar.progress(persen)
-            status_text.text(f"🔄 [Antrean {i+1}] Memproses...")
+            status_text.text(f"🔄 [Antrean {current_idx + 1}] Memproses...")
             
             try:
                 if driver.current_window_handle != main_window:
@@ -175,8 +178,8 @@ def run_scraper_final_fix(daerah, target_count):
                 cards = driver.find_elements(By.CSS_SELECTOR, ".kost-rc, [data-testid='roomCard']")
                 
                 # Pagination Logic
-                if i > 0 and i % 20 == 0:
-                    status_text.text(f"➡️ Pindah ke Halaman Berikutnya (Data ke-{i+1})...")
+                if current_idx > 0 and current_idx % 20 == 0:
+                    status_text.text(f"➡️ Pindah ke Halaman Berikutnya (Data ke-{current_idx + 1})...")
                     try:
                         next_button = driver.find_element(By.XPATH, "//ul[contains(@class, 'pagination')]/li[last()]/a")
                         driver.execute_script("arguments[0].click();", next_button)
@@ -188,7 +191,7 @@ def run_scraper_final_fix(daerah, target_count):
                 # ======================================================
                 # 2. PILIH KARTU
                 # ======================================================
-                local_index = i % 20
+                local_index = current_idx % 20
                 
                 if local_index >= len(cards):
                     time.sleep(2)
@@ -225,6 +228,7 @@ def run_scraper_final_fix(daerah, target_count):
                     print("⚠️ Terdeteksi Forbidden/Error. Skip data ini...")
                     driver.close()
                     driver.switch_to.window(main_window)
+                    current_idx += 1
                     continue 
 
                 # ======================================================
@@ -357,6 +361,9 @@ def run_scraper_final_fix(daerah, target_count):
                         "Link": driver.current_url
                     })
 
+                    success_count += 1
+                    status_text.success(f"✅ Sukses [{success_count}/{target_count}]: {nama}")
+
                 except Exception as e:
                     print(f"Error ambil data: {e}")
 
@@ -364,6 +371,8 @@ def run_scraper_final_fix(daerah, target_count):
                 driver.switch_to.window(main_window)
                 driver.delete_all_cookies()
                 time.sleep(1)
+
+                current_idx += 1
 
             except Exception as e:
                 if len(driver.window_handles) > 1:
@@ -384,6 +393,7 @@ def run_scraper_final_fix(daerah, target_count):
 
 st.title("🏆 GIS Indekos & Smart Recommendation")
 st.markdown("Aplikasi Tugas Besar: Scraping, Peta Akurat, dan Rekomendasi Cerdas.")
+st.warning("⚠️ *Peringatan:* Hindari scraping terlalu banyak sekaligus agar browser tidak STUCK. Gunakan jumlah secukupnya untuk performa terbaik.")
 
 with st.sidebar:
     st.header("⚙️ Kontrol Aplikasi")
@@ -498,8 +508,15 @@ if 'data_kos' in st.session_state:
                 df_lama = st.session_state['data_kos']
                 jumlah_awal = len(df_lama)
                 
-                # Hapus jika Nama Kost DAN Lokasi sama persis
-                df_bersih = df_lama.drop_duplicates(subset=['Nama Kost', 'Lokasi'], keep='first')
+                # 1. Hapus Duplikat (Nama & Lokasi sama persis)
+                df_step1 = df_lama.drop_duplicates(subset=['Nama Kost', 'Lokasi'], keep='first')
+                
+                # 2. Hapus Baris yang Nama Kost-nya Kosong / NaN / "-"
+                df_bersih = df_step1[
+                    (df_step1['Nama Kost'].notna()) & 
+                    (df_step1['Nama Kost'].astype(str).str.strip() != "") & 
+                    (df_step1['Nama Kost'] != "-")
+                ]
                 
                 # Update Session State
                 st.session_state['data_kos'] = df_bersih
@@ -653,7 +670,11 @@ if 'data_kos' in st.session_state:
         # 2. Filter berdasarkan kata kunci di Deskripsi (Pengganti Jarak GPS)
         if keyword:
             # Mencari teks di kolom Deskripsi yang di-scrape otomatis
-            df_rec = df_rec[df_rec['Deskripsi'].str.contains(keyword, case=False, na=False)]
+            df_rec = (
+                df_rec[df_rec['Deskripsi'].str.contains(keyword, case=False, na=False)] |
+                df_rec['Nama Kost'].str.contains(keyword, case=False, na=False) |
+                df_rec['Lokasi Clean'].str.contains(keyword, case=False, na=False)
+            )
             st.success(f"Ditemukan {len(df_rec)} kos di sekitar '{keyword}'")
 
         # 3. Sortir: Fasilitas Terlengkap & Harga Termurah
