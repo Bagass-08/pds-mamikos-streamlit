@@ -719,6 +719,25 @@ if 'data_kos' in st.session_state:
 
             st.markdown("#### Daftar Lengkap Hasil Filter")
             # Menampilkan kolom yang relevan saja agar rapi
-            st.dataframe(df_rec[['Nama Kost', 'Tipe', 'Harga', 'Skor_Fasilitas', 'Deskripsi']])
+            # Memilih kolom yang relevan untuk ditampilkan
+            df_display = df_rec[['Nama Kost', 'Tipe', 'Harga', 'Skor_Fasilitas', 'Deskripsi', 'Link']].copy()
+            
+            # Menampilkan dataframe dengan konfigurasi kolom Link
+            st.data_editor(
+                df_display,
+                column_config={
+                    "Link": st.column_config.LinkColumn(
+                        "Aksi",
+                        help="Klik untuk membuka halaman Mamikos",
+                        validate=r"^https://",
+                        display_text="Buka Link Kos" # Teks yang muncul di tombol
+                    ),
+                    "Harga": st.column_config.TextColumn("Harga Sewa"),
+                    "Skor_Fasilitas": st.column_config.NumberColumn("Item Fasilitas", format="%d 🛏️")
+                },
+                hide_index=True,
+                use_container_width=True,
+                disabled=df_display.columns
+            )
         else:
             st.warning("Tidak ada kos yang cocok dengan kriteria budget atau lokasi tersebut.")
