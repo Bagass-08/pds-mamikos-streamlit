@@ -43,32 +43,36 @@ def extract_tipe_kos_manual(row):
     else: return 'Campur'
 
 def add_accurate_coordinates(df, city_context):
-    # Gunakan user_agent unik
-    geolocator = Nominatim(user_agent="kos_app_bagas_fix_v2")
+    geolocator = Nominatim(user_agent="kos_app_validasi_jarak_v3")
+    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.1) # Jeda 1.1 detik agar aman
     
-    # RateLimiter wajib untuk Cloud (Jeda 1 detik)
-    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
-    
-    st.info(f"🗺️ Memetakan koordinat di {city_context}...")
+    st.info(f"🗺️ Memetakan dengan Validasi Jarak di area: {city_context}...")
     progress_bar = st.progress(0)
     
-    # --- 1. TENTUKAN TITIK TENGAH PETA (CENTER) ---
+    # --- 1. TENTUKAN PUSAT KOTA (ANCHOR) ---
+    # Kita butuh ini sebagai patokan untuk mengukur jarak
     try:
-        # Coba cari otomatis dulu
         center = geocode(f"{city_context}, Indonesia", timeout=10)
         c_lat, c_lon = center.latitude, center.longitude
+        city_center_coords = (c_lat, c_lon)
     except:
-        # Jika GAGAL, cek manual nama kotanya
+        # Fallback Manual jika Nominatim gagal mencari kota
         if "jakarta" in city_context.lower():
-            c_lat, c_lon = -6.2088, 106.8456
+            city_center_coords = (-6.2088, 106.8456)
+        elif "bandung" in city_context.lower():
+            city_center_coords = (-6.9175, 107.6191)
         elif "surabaya" in city_context.lower():
-            c_lat, c_lon = -7.2575, 112.7521
+            city_center_coords = (-7.2575, 112.7521)
         elif "jogja" in city_context.lower() or "yogyakarta" in city_context.lower():
-            c_lat, c_lon = -7.7956, 110.3695
+            city_center_coords = (-7.7956, 110.3695)
+        elif "malang" in city_context.lower():
+            city_center_coords = (-7.9666, 112.6326)
         else:
-            c_lat, c_lon = -6.9175, 107.6191 # Fallback terakhir tetap Bandung
+            city_center_coords = (-6.9175, 107.6191) # Default Bandung
+    
+    c_lat, c_lon = city_center_coords
 
-    # --- 2. PETAKAN SETIAP LOKASI KOS ---
+    # --- 2. PETAKAN SETIAP LOKASI DENGAN VALIDASI ---
     unique_locs = df['Lokasi Clean'].unique()
     loc_map = {}
     
@@ -80,37 +84,64 @@ def add_accurate_coordinates(df, city_context):
             continue
             
         try:
-            # Cari lokasi spesifik + nama kota agar tidak nyasar
-            query = f"{loc}, {city_context}, Indonesia"
-            loc_data = geocode(query, timeout=10)
+            # STRATEGI 1: Cari standar "Nama Daerah, Nama Kota"
+            found_coords = None
             
-            if loc_data:
-                loc_map[loc] = (loc_data.latitude, loc_data.longitude)
-            else:
-                loc_map[loc] = None
-        except:
+            # Coba cari biasa dulu
+            query_1 = f"{loc}, {city_context}, Indonesia"
+            res_1 = geocode(query_1, timeout=10)
+            
+            if res_1:
+                # HITUNG JARAK: Apakah hasil ini dekat dengan pusat kota? (Max 30km)
+                dist = geodesic(city_center_coords, (res_1.latitude, res_1.longitude)).km
+                if dist <= 30: 
+                    found_coords = (res_1.latitude, res_1.longitude)
+            
+            # STRATEGI 2: Jika Strategi 1 gagal atau kejauhan, coba tambah "Kecamatan"
+            if not found_coords:
+                query_2 = f"Kecamatan {loc}, {city_context}, Indonesia"
+                res_2 = geocode(query_2, timeout=10)
+                if res_2:
+                    dist = geodesic(city_center_coords, (res_2.latitude, res_2.longitude)).km
+                    if dist <= 30:
+                        found_coords = (res_2.latitude, res_2.longitude)
+            
+            # STRATEGI 3: Coba tambah "Kelurahan"
+            if not found_coords:
+                query_3 = f"Kelurahan {loc}, {city_context}, Indonesia"
+                res_3 = geocode(query_3, timeout=10)
+                if res_3:
+                    dist = geodesic(city_center_coords, (res_3.latitude, res_3.longitude)).km
+                    if dist <= 30:
+                        found_coords = (res_3.latitude, res_3.longitude)
+
+            # Simpan hasil terbaik (bisa None jika semua strategi gagal)
+            loc_map[loc] = found_coords
+            
+        except Exception as e:
+            # print(f"Error geo: {e}") 
             loc_map[loc] = None
             
     progress_bar.empty()
     
-    # --- 3. MASUKKAN KE DATAFRAME ---
+    # --- 3. ISI DATAFRAME ---
     latitudes = []
     longitudes = []
     
     for index, row in df.iterrows():
         coords = loc_map.get(row['Lokasi Clean'])
         if coords:
-            # Tambah sedikit random (jitter) agar marker tidak tumpang tindih
-            latitudes.append(coords[0] + random.uniform(-0.001, 0.001))
-            longitudes.append(coords[1] + random.uniform(-0.001, 0.001))
+            # Jitter (acak dikit) biar marker gak numpuk pas
+            latitudes.append(coords[0] + random.uniform(-0.0015, 0.0015))
+            longitudes.append(coords[1] + random.uniform(-0.0015, 0.0015))
         else:
-            # Jika lokasi spesifik gagal, pakai titik tengah kota yang sudah benar tadi
-            latitudes.append(c_lat + random.uniform(-0.02, 0.02))
-            longitudes.append(c_lon + random.uniform(-0.02, 0.02))
+            # Kalau lokasi spesifik gak ketemu, lempar ke pusat kota tapi disebar dikit
+            latitudes.append(c_lat + random.uniform(-0.03, 0.03))
+            longitudes.append(c_lon + random.uniform(-0.03, 0.03))
             
     df['lat'] = latitudes
     df['lon'] = longitudes
-    return df        
+    return df     
 
 # --- 4. FUNGSI SCRAPER (LOGIKA ASLI + FORBIDDEN SKIP + TIPE KOS + DESKRIPSI ASLI) ---
 def run_scraper_final_fix(daerah, start_page, target_count):
@@ -166,6 +197,14 @@ def run_scraper_final_fix(daerah, start_page, target_count):
     
     status_text.text(f"🌍 Membuka URL: {base_url}")
     driver.get(base_url)
+    time.sleep(3)
+
+    page_source = driver.page_source
+    if "Ups, Halamannya Tidak Ketemu" in page_source or "Mohon maaf" in page_source:
+        st.error(f"❌ Daerah '{daerah}' tidak ditemukan di Mamikos! Coba gunakan nama kota/kecamatan yang lebih umum (Contoh: 'Depok', 'Cimanggis', 'Dago').")
+        driver.quit()
+        return pd.DataFrame()
+    
     main_window = driver.current_window_handle
     
     # --- PENGGANTI INPUT MANUAL ---
@@ -222,14 +261,32 @@ def run_scraper_final_fix(daerah, start_page, target_count):
                 
                 # Pagination Logic
                 if current_idx > 0 and current_idx % 20 == 0:
-                    status_text.text(f"➡️ Pindah ke Halaman Berikutnya (Data ke-{current_idx + 1})...")
+                    status_text.text(f"➡️ Mencoba pindah ke halaman berikutnya...")
                     try:
+                        # Cari tombol Next
                         next_button = driver.find_element(By.XPATH, "//ul[contains(@class, 'pagination')]/li[last()]/a")
+                        
+                        # Cek apakah tombol disable (biasanya class 'disabled')
+                        if "disabled" in next_button.get_attribute("class"):
+                            raise Exception("Tombol Next Disabled (Halaman Terakhir)")
+
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_button)
+                        time.sleep(1)
                         driver.execute_script("arguments[0].click();", next_button)
                         time.sleep(5)
+                        
+                        # Refresh kartu di halaman baru
                         cards = driver.find_elements(By.CSS_SELECTOR, ".kost-rc, [data-testid='roomCard']")
+                        
+                        # Cek jika halaman baru kosong
+                        if not cards:
+                            st.warning("⚠️ Halaman berikutnya kosong. Berhenti.")
+                            break
+
                     except Exception as e:
-                        print(f"⚠️ Gagal Pindah Halaman: {e}")
+                        # --- [LOGIKA BERHENTI & SIMPAN DATA] ---
+                        st.warning(f"🛑 Data habis atau halaman terakhir tercapai! Total didapat: {success_count} data.")
+                        break #
             
                 # ======================================================
                 # 2. PILIH KARTU
