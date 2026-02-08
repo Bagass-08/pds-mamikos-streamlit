@@ -14,7 +14,6 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 import plotly.express as px
@@ -155,7 +154,6 @@ def run_scraper_final_fix(daerah, start_page, target_count):
             service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
             driver = webdriver.Chrome(service=service, options=options)
             print("✅ Menggunakan Driver CLOUD (Chromium)")
-            driver.set_page_load_timeout(25)
             
         except Exception as e_cloud:
             st.error(f"❌ Gagal Membuka Browser (Local & Cloud Error): {e_cloud}")
@@ -231,9 +229,22 @@ def run_scraper_final_fix(daerah, start_page, target_count):
     status_text.success(f"📍 Posisi sekarang: Halaman {start_page}. Mulai mengambil data...")
     time.sleep(2)
 
+    waktu_terakhir_dapat = time.time()
+    batas_waktu_stuck = 5 * 60
+
     try:
         # Loop sesuai target user
         while success_count < target_count:
+            durasi_diam = time.time() - waktu_terakhir_dapat
+            
+            if durasi_diam > batas_waktu_stuck:
+                st.warning(f"⏳ Timeout! Antrian tidak bertambah selama 5 menit. Otomatis berhenti & simpan data.")
+                break # Keluar loop, data yang ada akan tersimpan otomatis
+            
+            # Update status text biar user tau timer berjalan
+            sisa_waktu = int(batas_waktu_stuck - durasi_diam)
+            status_text.text(f"🔄 Mengambil data ke-{success_count + 1}... (Reset timer dalam: {sisa_waktu} detik)")
+
             # Update Progress Bar Streamlit
             persen = int((success_count / target_count) * 100)
             progress_bar.progress(persen)
@@ -451,6 +462,7 @@ def run_scraper_final_fix(daerah, start_page, target_count):
                     })
 
                     success_count += 1
+                    waktu_terakhir_dapat = time.time()
                     status_text.success(f"✅ Sukses [{success_count}/{target_count}]: {nama}")
 
                 except Exception as e:
@@ -467,30 +479,16 @@ def run_scraper_final_fix(daerah, start_page, target_count):
                 if len(driver.window_handles) > 1:
                     driver.close()
                     driver.switch_to.window(main_window)
-                
-                # Cek apakah stuck (jika window handle error terus)
-                if len(driver.window_handles) == 0:
-                    st.error("🛑 Browser tertutup/crash! Menyimpan data...")
-                    break # Keluar dari loop while
-                
                 continue
     
     except Exception as e:
         st.error(f"Error Utama: {e}")
 
-    try:
-        driver.quit()
-    except:
-        pass # Abaikan jika driver sudah mati duluan
-
+    driver.quit()
     progress_bar.progress(100)
+    status_text.success("✅ Scraping Selesai!")
     
-    if len(all_data) > 0:
-        st.success(f"✅ Proses Selesai/Berhenti. {len(all_data)} data berhasil diamankan!")
-        return pd.DataFrame(all_data)
-    else:
-        st.warning("⚠️ Tidak ada data yang berhasil diambil (0 data).")
-        return pd.DataFrame()
+    return pd.DataFrame(all_data)
 
 # --- 5. TAMPILAN WEBSITE (DASHBOARD) ---
 
