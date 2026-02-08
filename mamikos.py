@@ -751,9 +751,11 @@ if 'data_kos' in st.session_state:
         if 'Skor_Fasilitas' not in df_rec.columns:
             def hitung_skor_manual(row):
                 f_kamar = str(row.get('Fasilitas Kamar', '')) 
+                f_kamar_mandi = str(row.get('Fasilitas Kamar Mandi', '')) 
                 f_umum = str(row.get('Fasilitas Umum', ''))
+                f_parkir = str(row.get('Fasilitas Parkir', '')) 
                 # Menghitung jumlah fasilitas berdasarkan tanda koma
-                return len([x for x in (f_kamar + "," + f_umum).split(",") if x.strip()])
+                return len([x for x in (f_kamar + "," + f_kamar_mandi + "," + f_umum + "," + f_parkir).split(",") if x.strip()])
             df_rec['Skor_Fasilitas'] = df_rec.apply(hitung_skor_manual, axis=1)
 
         # 2. Filter berdasarkan kata kunci di Deskripsi (Pengganti Jarak GPS)
