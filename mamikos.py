@@ -14,6 +14,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 import plotly.express as px
@@ -154,6 +155,7 @@ def run_scraper_final_fix(daerah, start_page, target_count):
             service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
             driver = webdriver.Chrome(service=service, options=options)
             print("✅ Menggunakan Driver CLOUD (Chromium)")
+            driver.set_page_load_timeout(25)
             
         except Exception as e_cloud:
             st.error(f"❌ Gagal Membuka Browser (Local & Cloud Error): {e_cloud}")
@@ -465,16 +467,30 @@ def run_scraper_final_fix(daerah, start_page, target_count):
                 if len(driver.window_handles) > 1:
                     driver.close()
                     driver.switch_to.window(main_window)
+                
+                # Cek apakah stuck (jika window handle error terus)
+                if len(driver.window_handles) == 0:
+                    st.error("🛑 Browser tertutup/crash! Menyimpan data...")
+                    break # Keluar dari loop while
+                
                 continue
     
     except Exception as e:
         st.error(f"Error Utama: {e}")
 
-    driver.quit()
+    try:
+        driver.quit()
+    except:
+        pass # Abaikan jika driver sudah mati duluan
+
     progress_bar.progress(100)
-    status_text.success("✅ Scraping Selesai!")
     
-    return pd.DataFrame(all_data)
+    if len(all_data) > 0:
+        st.success(f"✅ Proses Selesai/Berhenti. {len(all_data)} data berhasil diamankan!")
+        return pd.DataFrame(all_data)
+    else:
+        st.warning("⚠️ Tidak ada data yang berhasil diambil (0 data).")
+        return pd.DataFrame()
 
 # --- 5. TAMPILAN WEBSITE (DASHBOARD) ---
 
