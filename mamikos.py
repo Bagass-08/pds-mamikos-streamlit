@@ -43,36 +43,32 @@ def extract_tipe_kos_manual(row):
     else: return 'Campur'
 
 def add_accurate_coordinates(df, city_context):
-    geolocator = Nominatim(user_agent="kos_app_validasi_jarak_v3")
-    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1.1) # Jeda 1.1 detik agar aman
+    # Gunakan user_agent unik
+    geolocator = Nominatim(user_agent="kos_app_bagas_fix_v2")
     
-    st.info(f"🗺️ Memetakan dengan Validasi Jarak di area: {city_context}...")
+    # RateLimiter wajib untuk Cloud (Jeda 1 detik)
+    geocode = RateLimiter(geolocator.geocode, min_delay_seconds=1)
+    
+    st.info(f"🗺️ Memetakan koordinat di {city_context}...")
     progress_bar = st.progress(0)
     
-    # --- 1. TENTUKAN PUSAT KOTA (ANCHOR) ---
-    # Kita butuh ini sebagai patokan untuk mengukur jarak
+    # --- 1. TENTUKAN TITIK TENGAH PETA (CENTER) ---
     try:
+        # Coba cari otomatis dulu
         center = geocode(f"{city_context}, Indonesia", timeout=10)
         c_lat, c_lon = center.latitude, center.longitude
-        city_center_coords = (c_lat, c_lon)
     except:
-        # Fallback Manual jika Nominatim gagal mencari kota
+        # Jika GAGAL, cek manual nama kotanya
         if "jakarta" in city_context.lower():
-            city_center_coords = (-6.2088, 106.8456)
-        elif "bandung" in city_context.lower():
-            city_center_coords = (-6.9175, 107.6191)
+            c_lat, c_lon = -6.2088, 106.8456
         elif "surabaya" in city_context.lower():
-            city_center_coords = (-7.2575, 112.7521)
+            c_lat, c_lon = -7.2575, 112.7521
         elif "jogja" in city_context.lower() or "yogyakarta" in city_context.lower():
-            city_center_coords = (-7.7956, 110.3695)
-        elif "malang" in city_context.lower():
-            city_center_coords = (-7.9666, 112.6326)
+            c_lat, c_lon = -7.7956, 110.3695
         else:
-            city_center_coords = (-6.9175, 107.6191) # Default Bandung
-    
-    c_lat, c_lon = city_center_coords
+            c_lat, c_lon = -6.9175, 107.6191 # Fallback terakhir tetap Bandung
 
-    # --- 2. PETAKAN SETIAP LOKASI DENGAN VALIDASI ---
+    # --- 2. PETAKAN SETIAP LOKASI KOS ---
     unique_locs = df['Lokasi Clean'].unique()
     loc_map = {}
     
@@ -84,64 +80,37 @@ def add_accurate_coordinates(df, city_context):
             continue
             
         try:
-            # STRATEGI 1: Cari standar "Nama Daerah, Nama Kota"
-            found_coords = None
+            # Cari lokasi spesifik + nama kota agar tidak nyasar
+            query = f"{loc}, {city_context}, Indonesia"
+            loc_data = geocode(query, timeout=10)
             
-            # Coba cari biasa dulu
-            query_1 = f"{loc}, {city_context}, Indonesia"
-            res_1 = geocode(query_1, timeout=10)
-            
-            if res_1:
-                # HITUNG JARAK: Apakah hasil ini dekat dengan pusat kota? (Max 30km)
-                dist = geodesic(city_center_coords, (res_1.latitude, res_1.longitude)).km
-                if dist <= 30: 
-                    found_coords = (res_1.latitude, res_1.longitude)
-            
-            # STRATEGI 2: Jika Strategi 1 gagal atau kejauhan, coba tambah "Kecamatan"
-            if not found_coords:
-                query_2 = f"Kecamatan {loc}, {city_context}, Indonesia"
-                res_2 = geocode(query_2, timeout=10)
-                if res_2:
-                    dist = geodesic(city_center_coords, (res_2.latitude, res_2.longitude)).km
-                    if dist <= 30:
-                        found_coords = (res_2.latitude, res_2.longitude)
-            
-            # STRATEGI 3: Coba tambah "Kelurahan"
-            if not found_coords:
-                query_3 = f"Kelurahan {loc}, {city_context}, Indonesia"
-                res_3 = geocode(query_3, timeout=10)
-                if res_3:
-                    dist = geodesic(city_center_coords, (res_3.latitude, res_3.longitude)).km
-                    if dist <= 30:
-                        found_coords = (res_3.latitude, res_3.longitude)
-
-            # Simpan hasil terbaik (bisa None jika semua strategi gagal)
-            loc_map[loc] = found_coords
-            
-        except Exception as e:
-            # print(f"Error geo: {e}") 
+            if loc_data:
+                loc_map[loc] = (loc_data.latitude, loc_data.longitude)
+            else:
+                loc_map[loc] = None
+        except:
             loc_map[loc] = None
             
     progress_bar.empty()
     
-    # --- 3. ISI DATAFRAME ---
+    # --- 3. MASUKKAN KE DATAFRAME ---
     latitudes = []
     longitudes = []
     
     for index, row in df.iterrows():
         coords = loc_map.get(row['Lokasi Clean'])
         if coords:
-            # Jitter (acak dikit) biar marker gak numpuk pas
-            latitudes.append(coords[0] + random.uniform(-0.0015, 0.0015))
-            longitudes.append(coords[1] + random.uniform(-0.0015, 0.0015))
+            # Tambah sedikit random (jitter) agar marker tidak tumpang tindih
+            latitudes.append(coords[0] + random.uniform(-0.001, 0.001))
+            longitudes.append(coords[1] + random.uniform(-0.001, 0.001))
         else:
-            # Kalau lokasi spesifik gak ketemu, lempar ke pusat kota tapi disebar dikit
-            latitudes.append(c_lat + random.uniform(-0.03, 0.03))
-            longitudes.append(c_lon + random.uniform(-0.03, 0.03))
+            # Jika lokasi spesifik gagal, pakai titik tengah kota yang sudah benar tadi
+            latitudes.append(c_lat + random.uniform(-0.02, 0.02))
+            longitudes.append(c_lon + random.uniform(-0.02, 0.02))
             
     df['lat'] = latitudes
     df['lon'] = longitudes
-    return df     
+    return df    
 
 # --- 4. FUNGSI SCRAPER (LOGIKA ASLI + FORBIDDEN SKIP + TIPE KOS + DESKRIPSI ASLI) ---
 def run_scraper_final_fix(daerah, start_page, target_count):
@@ -222,22 +191,40 @@ def run_scraper_final_fix(daerah, start_page, target_count):
         # Loop ini akan berjalan sebanyak start_page - 1 kali
         for p in range(1, start_page):
             try:
-                # Menunggu tombol pagination muncul
-                next_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//ul[contains(@class, 'pagination')]/li[last()]/a")))
-                
                 # Scroll ke tombol agar terlihat oleh driver
-                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_button)
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(1)
                 
-                # Klik tombol Next
+               # Kita cari tombol pagination yang paling kanan/terakhir
+                next_button = wait.until(EC.presence_of_element_located((By.XPATH, "//ul[contains(@class, 'pagination')]/li[last()]/a")))
+                
+                # Pastikan tombol terlihat di layar
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", next_button)
+                time.sleep(1) # Jeda stabilisasi visual
+                
+                # KLIK PAKSA (JavaScript Click)
+                # Ini menembus pop-up yang mungkin masih menutupi tombol
                 driver.execute_script("arguments[0].click();", next_button)
                 
-                status_text.text(f"✅ Berhasil melewati halaman {p}...")
-                # Tambah delay agar halaman benar-benar ganti sebelum klik berikutnya
-                time.sleep(5) 
+                status_text.text(f"✅ Berhasil pindah dari Hal {p} ke {p+1}...")
+                
+                # Jeda Wajib Loading Halaman Baru
+                time.sleep(6) 
+                
             except Exception as e:
-                st.error(f"Gagal skip ke halaman {p+1}. Error: {e}")
-                break
+                # Cek apakah ini halaman terakhir (Tombol Next jadi 'disabled')
+                try:
+                    disabled_btn = driver.find_element(By.CSS_SELECTOR, "li.disabled a")
+                    if disabled_btn:
+                        st.warning(f"🛑 Mentok di Halaman {p}. Halaman {start_page} tidak ada.")
+                        break
+                except:
+                    st.error(f"Gagal skip di halaman {p}. Error: {e}")
+                    # Coba scroll up sedikit lalu scroll down lagi (Retry logic sederhana)
+                    driver.execute_script("window.scrollBy(0, -300);")
+                    time.sleep(1)
+                    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    continue
     
     status_text.success(f"📍 Posisi sekarang: Halaman {start_page}. Mulai mengambil data...")
     time.sleep(2)
